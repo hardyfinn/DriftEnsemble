@@ -8,7 +8,7 @@ C++ plug-in.
 1. Copy `DriftEnsembleNT.o` to the NT's SD card, into `programs/plug-ins/`.
 2. Put the card back (or reboot the NT), then add the algorithm "Drift Ensemble".
 
-Needs firmware with plug-in API v14 or later (update to the latest firmware).
+Works on firmware 1.7 or later (the plug-in only asks for API v5), so 1.9 is fine.
 
 ## Parameters
 
@@ -18,7 +18,7 @@ Needs firmware with plug-in API v14 or later (update to the latest firmware).
 | Ensemble | Togetherness | 0% = players drift independently, 100% = the band drifts as one |
 | Ensemble | Output shape | Trigger (5 ms) or Gate (half a step) |
 | Spread | Spread 1-6 | How far each player wanders, 0-80 ms (20 ms ≈ a real drummer) |
-| Feel | Feel 1-6 | Drift colour 0-2: jitter, nervous, human (1.00), loose, wander |
+| Feel | Feel 1-6 | Drift colour 0.00-2.00: below 0.4 jitter, around 1.00 human (the paper's value), above 1.7 slow tempo wander |
 | Routing | Clock in | CV clock, 16ths (default input 1) |
 | Routing | Reset in | Pulls everyone back to the grid (default input 2) |
 | Routing | Player 1-6 out | 5 V clocks (default outputs 1-6) |

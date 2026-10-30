@@ -44,9 +44,6 @@ int main(int argc, char** argv)
 	alg->v = v.data();
 	for (uint32_t p = 0; p < req.numParameters; p++) parameterChanged(alg, p);
 
-	char buf[64];
-	parameterString(alg, kParamFeel1, v[kParamFeel1], buf);
-	fprintf(stderr, "Feel 1 shows: %s\n", buf);
 
 	const int block = 24;
 	const long spt = (long)(60.0 / 130.0 / 4.0 * 48000 + 0.5);

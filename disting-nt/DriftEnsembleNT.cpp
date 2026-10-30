@@ -134,7 +134,7 @@ static const char* const shapeStrings[] = { "Trigger", "Gate", NULL };
 static const char* const sourceStrings[] = { "CV", "MIDI", NULL };
 
 #define SPREAD(n) { .name = "Spread " #n, .min = 0, .max = 800, .def = 200, .unit = kNT_unitMs, .scaling = kNT_scaling10, .enumStrings = NULL },
-#define FEEL(n) { .name = "Feel " #n, .min = 0, .max = 200, .def = 100, .unit = kNT_unitHasStrings, .scaling = 0, .enumStrings = NULL },
+#define FEEL(n) { .name = "Feel " #n, .min = 0, .max = 200, .def = 100, .unit = kNT_unitNone, .scaling = kNT_scaling100, .enumStrings = NULL },
 
 static const _NT_parameter parameters[] = {
 	{ .name = "Clock source", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = sourceStrings },
@@ -278,17 +278,6 @@ static void parameterChanged(_NT_algorithm* self, int p)
 		a->spread[p - kParamSpread1] = a->v[p] * 0.0001f; // tenths of ms -> seconds
 	else if (p >= kParamFeel1 && p < kParamFeel1 + NUM_PLAYERS)
 		betaWeights(a->v[p] * 0.01f, a->weights[p - kParamFeel1]);
-}
-
-static int parameterString(_NT_algorithm* self, int p, int v, char* buff)
-{
-	if (p < kParamFeel1 || p >= kParamFeel1 + NUM_PLAYERS)
-		return 0;
-	int len = NT_floatToString(buff, v * 0.01f, 2);
-	const char* word = v < 40 ? " jitter" : v < 80 ? " nervous" : v < 130 ? " human" : v < 170 ? " loose" : " wander";
-	while (*word) buff[len++] = *word++;
-	buff[len] = 0;
-	return len;
 }
 
 // Advance this player's drift and return its next offset, in samples
@@ -509,15 +498,16 @@ static const _NT_factory factory = {
 	.deserialise = NULL,
 	.midiSysEx = NULL,
 	.parameterUiPrefix = NULL,
-	.parameterString = parameterString,
+	.parameterString = NULL,
 };
 
-_NT_DRAM_SECTION
 uintptr_t pluginEntry(_NT_selector selector, uint32_t data)
 {
 	switch (selector) {
 	case kNT_selector_version:
-		return kNT_apiVersionCurrent;
+		// Only needs features from API v5, so it also loads on older
+		// firmware (e.g. 1.9) as well as current firmware.
+		return kNT_apiVersion5;
 	case kNT_selector_numFactories:
 		return 1;
 	case kNT_selector_factoryInfo:
