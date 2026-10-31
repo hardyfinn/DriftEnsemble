@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Draws res/Ensemble.svg (14 HP). VCV Rack can't draw SVG <text>, so every
+# Draws res/Ensemble.svg and res/Ensemble-grey.svg (18 HP). VCV Rack can't draw SVG <text>, so every
 # label is turned into outline paths with fontTools. Positions are in mm and
 # must match src/Ensemble.cpp.
 # Colours and zigzags come from Haer's reference photo (panel option C).
@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FONT_BOLD = os.environ.get("PANEL_FONT_BOLD", "/usr/share/fonts/opentype/inter/Inter-Bold.otf")
 FONT_MED = os.environ.get("PANEL_FONT_MED", "/usr/share/fonts/opentype/inter/Inter-Medium.otf")
 
-W, H = 71.12, 128.5  # 14 HP
+W, H = 91.44, 128.5  # 18 HP
 
 PINK = "#BE3270"
 PINK_DK = "#7C1F4B"
@@ -28,8 +28,9 @@ SOFT = "#4E6B34"
 # Layout (mm), shared with src/Ensemble.cpp
 TOP_Y = 27.0
 ROW_Y = [47.0 + i * 13.5 for i in range(6)]
-SPREAD_X, LEAN_X, LIGHT_X, OUT_X = 8.0, 19.5, 28.0, 38.0
-KNOB_X, JACK_X = 53.0, 65.0
+SPREAD_X, LEAN_X, LSWING_X, LIGHT_X, OUT_X = 8.0, 19.5, 31.0, 39.5, 49.5
+C1, C2, C3 = 63.0, 74.5, 85.5
+DISPLAY = (29.0, 18.5, 60.0, 16.5)  # x, y, w, h
 HEAD_Y = 40.0
 
 fonts = {}
@@ -82,24 +83,25 @@ add = p.append
 add(rect(0, 0, W, H, GREEN))
 
 # Header and footer bands
-p += zigzag_band(15.0, PINK, YELLOW)
-p += zigzag_band(123.5, PINK, YELLOW, up=True)
-add(text("DRIFT ENSEMBLE", W / 2, 8.8, 4.4, FONT_BOLD, CREAM, spacing=0.08))
+p += zigzag_band(15.0, PINK, YELLOW, n=11)
+p += zigzag_band(123.5, PINK, YELLOW, up=True, n=11)
+add(text("DRIFT ENSEMBLE", W / 2, 8.8, 4.6, FONT_BOLD, CREAM, spacing=0.08))
 add(text("six human clocks", W / 2, 12.8, 2.1, FONT_MED, YELLOW))
 add(text("after Hennig et al. 2011", W / 2, 127.0, 1.7, FONT_MED, CREAM))
 
-# Top row: clock, reset, freeze
+# Top row: clock, reset, and the drift display
 add(text("CLOCK", 10.0, 21.8, 2.1, FONT_BOLD))
 add(text("RESET", 22.0, 21.8, 2.1, FONT_BOLD))
-add(text("FREEZE", (KNOB_X + JACK_X) / 2, 21.8, 2.1, FONT_BOLD))
 add(text("16ths", 10.0, 33.6, 1.6, FONT_MED, SOFT))
-add(text("button", KNOB_X, 33.6, 1.6, FONT_MED, SOFT))
-add(text("gate", JACK_X, 33.6, 1.6, FONT_MED, SOFT))
+dx, dy, dw, dh = DISPLAY
+add(rect(dx - 0.6, dy - 0.6, dw + 1.2, dh + 1.2, YELLOW, 1.6))
+add(rect(dx, dy, dw, dh, PLUM, 1.2))
 
 # Players: column headers, output box, numbers, separators
 add(rect(3.0, HEAD_Y - 3.6, W - 6.0, 0.3, PINK))
 add(text("SPREAD", SPREAD_X, HEAD_Y, 2.0, FONT_BOLD))
 add(text("LEAN", LEAN_X, HEAD_Y, 2.0, FONT_BOLD))
+add(text("SWING", LSWING_X, HEAD_Y, 2.0, FONT_BOLD))
 add(rect(OUT_X - 5.2, HEAD_Y - 3.2, 10.4, ROW_Y[-1] + 6.0 - (HEAD_Y - 3.2), PINK, 1.2))
 add(text("OUT", OUT_X, HEAD_Y, 2.0, FONT_BOLD, CREAM))
 for i, y in enumerate(ROW_Y):
@@ -110,29 +112,42 @@ for i, y in enumerate(ROW_Y):
 add(text("early", LEAN_X - 4.6, ROW_Y[0] + 5.6, 1.4, FONT_MED, SOFT))
 add(text("late", LEAN_X + 4.6, ROW_Y[0] + 5.6, 1.4, FONT_MED, SOFT))
 
-# Divider between the players and the master column
-add(rect(45.6, HEAD_Y - 3.2, 0.3, ROW_Y[-1] + 6.0 - (HEAD_Y - 3.2), PINK))
+# Divider between the players and the master section
+add(rect(57.2, HEAD_Y - 3.2, 0.3, ROW_Y[-1] + 6.0 - (HEAD_Y - 3.2), PINK))
 
-# Master column: one label over each row (knob + CV, or two small controls)
-add(text("TOGETHER", (KNOB_X + JACK_X) / 2, HEAD_Y, 2.0, FONT_BOLD))
-add(text("LEADER", KNOB_X, ROW_Y[1] - 6.0, 1.9, FONT_BOLD))
-add(text("SEED", JACK_X, ROW_Y[1] - 6.0, 1.9, FONT_BOLD))
-add(text("SPREAD ±", (KNOB_X + JACK_X) / 2, ROW_Y[2] - 6.0, 2.0, FONT_BOLD))
-add(text("FEEL", (KNOB_X + JACK_X) / 2, ROW_Y[3] - 6.0, 2.0, FONT_BOLD))
-add(text("SWING", (KNOB_X + JACK_X) / 2, ROW_Y[4] - 6.0, 2.0, FONT_BOLD))
+# Master section: a label over each control pair / single control
+pair = (C1 + C2) / 2
+add(text("TOGETHER", pair, HEAD_Y, 2.0, FONT_BOLD))
+add(text("LEADER", C3, HEAD_Y, 1.9, FONT_BOLD))
+for r, (left, right) in enumerate([("SPREAD \u00b1", "SEED"), ("FEEL", "ANCHOR"), ("SWING", "PUSH"), ("ENERGY", None), ("FREEZE", None)], start=1):
+    add(text(left, pair, ROW_Y[r] - 6.0, 2.0, FONT_BOLD))
+    if right:
+        add(text(right, C3, ROW_Y[r] - 6.0, 1.9, FONT_BOLD))
+
 # Bottom-right: a small block of the photo's triangle tiles as decoration
-tx0, ty0, tw, th = 48.0, ROW_Y[5] - 4.4, 20.0, 8.8
-n = 5
+tx0, ty0, tw, th = C3 - 4.5, ROW_Y[4] - 4.2, 9.0, ROW_Y[5] - ROW_Y[4] + 8.4
+n = 2
 w = tw / n
-for row, (bg, fg) in enumerate([(PINK, YELLOW), (YELLOW, PINK)]):
-    y0 = ty0 + row * th / 2
-    add(rect(tx0, y0, tw, th / 2, bg))
+rows = 4
+for row in range(rows):
+    bg, fg = (PINK, YELLOW) if row % 2 == 0 else (YELLOW, PINK)
+    y0 = ty0 + row * th / rows
+    add(rect(tx0, y0, tw, th / rows, bg))
     for i in range(n):
         a = tx0 + i * w
-        add(poly([(a, y0 + th / 2), (a + w / 2, y0), (a + w, y0 + th / 2)], fg))
+        add(poly([(a, y0 + th / rows), (a + w / 2, y0), (a + w, y0 + th / rows)], fg))
 
 svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}mm" height="{H}mm" '
        f'viewBox="0 0 {W} {H}">\n' + "\n".join(x for x in p if x) + "\n</svg>\n")
 with open(os.path.join(HERE, "Ensemble.svg"), "w") as fh:
     fh.write(svg)
-print("wrote Ensemble.svg")
+
+# Greyscale version: same artwork, each colour swapped for a grey
+GREYS = {PINK: "#5A5A5A", PINK_DK: "#2E2E2E", YELLOW: "#D8D8D8", GREEN: "#A8A8A8",
+         GREEN_DK: "#8C8C8C", CREAM: "#F4F4F4", PLUM: "#1C1C1C", SOFT: "#4A4A4A"}
+grey = svg
+for colour, g in GREYS.items():
+    grey = grey.replace(f'"{colour}"', f'"{g}"')
+with open(os.path.join(HERE, "Ensemble-grey.svg"), "w") as fh:
+    fh.write(grey)
+print("wrote Ensemble.svg and Ensemble-grey.svg")

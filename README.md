@@ -10,17 +10,27 @@ in Human Musical Rhythms", PLoS ONE 6(10): e26457 (2011).
 | Control | What it does |
 |---|---|
 | **Clock** in | Steady 16th-note clock (from Live, CV Tools, a clock module...) |
-| **Reset** in | Pulls every player's drift back to zero (it then grows again). Also marks the downbeat for Swing |
-| **Freeze** button + gate | Holds every player's current offset until released |
-| **Spread** (per player) | How far the player wanders: 0 to 50 ms, noon = 15 ms, double-click = 20 ms |
-| **Lean** (per player) | Fixed push or lay-back, -25 ms (early) to +25 ms (late). Drift wobbles around it |
+| **Reset** in | Pulls every player's drift back to zero (it then grows again). Marks the downbeat for Swing, Anchor and Push |
+| **Display** | Each player's last hit: left of centre = early, right = late (edge = 50 ms). Player 1 shows pink in Leader mode |
+| **Spread** (per player) | How far the player wanders: 0 to 50 ms, noon = 15 ms, default 0 |
+| **Lean** (per player) | Fixed push or lay-back, -35 ms (early) to +35 ms (late). Drift wobbles around it |
+| **Swing** (per player) | 50% (straight) to 75%, added to the master Swing; the total is capped at 75% |
 | **Out** (per player) | The player's clock (trigger, or half-step gate from the right-click menu) |
 | **Together** + CV | Band mode: 0% = players drift independently, 100% = the band drifts as one. Leader mode: how closely players 2-6 follow player 1 |
 | **Leader** button | Switches Together to Leader mode; player 1 leads (its light turns pink). By default followers react to the leader's previous hit (right-click to change) |
-| **Seed** | 0 = new drift every time. 1-32 = Reset (or the first clock) replays exactly the same drift |
 | **Spread ±** + CV | Master offset added to every player's Spread, -20 to +20 ms. Each player stays within 0-50 ms |
+| **Seed** | 0 = new drift every time. 1-32 = Reset (or the first clock) replays exactly the same drift |
 | **Feel** + CV | Colour of the drift for the whole band (beta 0 to 2): jitter, nervous, human (noon), loose, wander |
-| **Swing** + CV | Delays every second 16th: 50% (straight) to 75% |
+| **Anchor** | 0-100%: how much drift and Lean shrink on each bar's first 16th, so the band lands together on the "one" |
+| **Swing** + CV | Master swing: delays every second 16th, 50% (straight) to 75% |
+| **Push** | 0-30 ms: everyone rushes gradually through the last bar of each phrase |
+| **Energy** + CV | Scales all drift, 0-100% (Lean, Swing and Push are unaffected) |
+| **Freeze** button + gate | Holds every player's current offset until released |
+
+Right-click menu: greyscale panel, output shape, leader reacts to previous hit,
+bar length (12/16/24/32 steps, default 16), phrase length for Push (2/4/8/16
+bars, default 8), loosen up after Reset (off, or ramp Energy up over
+8/16/32/64 bars).
 
 CV inputs: 10 V sweeps the whole knob range.
 

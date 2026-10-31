@@ -15,7 +15,11 @@
 // without jumps.
 //
 // On top of the drift each player has a fixed Lean (always early or late)
-// and its own Swing, which adds to the master Swing.
+// and its own Swing, which adds to the master Swing. Arrangement helpers:
+//   Anchor - drift and Lean shrink on each bar's first 16th, so the band
+//            always lands together on the "one"
+//   Push   - everyone rushes gradually through the last bar of each phrase
+//   Energy - scales all drift, optionally ramping up after Reset
 //
 // Togetherness has two modes:
 //   Band   - everyone mixes in a shared drift, so the band leans into the same
@@ -157,6 +161,12 @@ struct Engine {
 	bool reactToPrevious = true;    // leader mode: follow the leader's last hit
 	double swing = 0.5;             // master Swing: 0.5 = straight, 0.75 = full swing
 	double laneSwing[NUM_PLAYERS];  // each player's own Swing, added to the master
+	double anchor = 0.0;            // 0..1: shrink drift + lean on each bar's first 16th
+	double push = 0.0;              // seconds: rush through the last bar of each phrase
+	double energy = 1.0;            // 0..1: scales everyone's drift
+	int loosenBars = 0;             // >0: after Reset, drift ramps up over this many bars
+	int barSteps = 16;              // 16ths per bar
+	int phraseBars = 8;             // bars per phrase (for Push)
 	bool frozen = false;
 	int seed = 0;                   // 0 = different every time, 1-32 = repeatable
 	int outputMode = TRIGGER;       // an OutputMode
@@ -239,8 +249,39 @@ struct Engine {
 				drawNext(i);
 	}
 
-	double effectiveSpread(int i) const {
-		return std::min(std::max(laneSpread[i] + masterSpread, 0.0), MAX_SPREAD);
+	// Steps since the last Reset (or the first clock); step 'swingOrigin' is 0
+	int64_t stepInSong(int64_t n) const { return n - swingOrigin; }
+
+	// Energy, including the slow loosen-up after Reset
+	double energyAt(int64_t n) const {
+		double e = std::min(std::max(energy, 0.0), 1.0);
+		if (loosenBars > 0) {
+			double bars = (double) std::max<int64_t>(stepInSong(n), 0) / std::max(barSteps, 1);
+			e *= std::min(bars / loosenBars, 1.0);
+		}
+		return e;
+	}
+
+	double effectiveSpread(int i, int64_t n) const {
+		return energyAt(n) * std::min(std::max(laneSpread[i] + masterSpread, 0.0), MAX_SPREAD);
+	}
+
+	// Push: everyone gradually rushes through the last bar of each phrase,
+	// reaching -push on its final 16th. Returns seconds (negative = early).
+	double pushAt(int64_t n) const {
+		if (push <= 0.0 || phraseBars < 2 || barSteps < 1)
+			return 0.0;
+		int64_t len = (int64_t) barSteps * phraseBars;
+		int64_t k = ((stepInSong(n) % len) + len) % len;
+		int64_t lastBar = len - barSteps;
+		if (k < lastBar)
+			return 0.0;
+		return -push * double(k - lastBar + 1) / barSteps;
+	}
+
+	bool isDownbeat(int64_t n) const {
+		int64_t b = std::max(barSteps, 1);
+		return ((stepInSong(n) % b) + b) % b == 0;
 	}
 
 	// Work out player i's drift (seconds) for its next step
@@ -252,12 +293,12 @@ struct Engine {
 		int64_t n = nextStep[i];
 		double g = std::min(std::max(togetherness, 0.0), 1.0);
 		double u = own[i].at(n, weights, frozen);
-		double s = effectiveSpread(i);
+		double s = effectiveSpread(i, n);
 		double d;
 		if (leaderMode && i > 0) {
 			// The leader's drift on its previous step (or this one)
 			int64_t m = reactToPrevious ? n - 1 : n;
-			double L = effectiveSpread(0) * own[0].at(m, weights, frozen);
+			double L = effectiveSpread(0, m) * own[0].at(m, weights, frozen);
 			d = std::sqrt(1.0 - g) * s * u + std::sqrt(g) * L;
 		}
 		else if (leaderMode) {
@@ -268,7 +309,11 @@ struct Engine {
 			d = s * (std::sqrt(1.0 - g) * u + std::sqrt(g) * b);
 		}
 		nextDrift[i] = d;
-		nextOffset[i] = d + lean[i];
+		double off = d + lean[i];
+		// Anchor: the band tightens up on the "one"
+		if (isDownbeat(n))
+			off *= 1.0 - std::min(std::max(anchor, 0.0), 1.0);
+		nextOffset[i] = off + pushAt(n);
 	}
 
 	double gridTime(int64_t n) const { return lastTick + double(n - tick) * period; }

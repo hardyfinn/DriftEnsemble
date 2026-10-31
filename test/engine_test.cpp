@@ -119,6 +119,55 @@ int main(int argc, char** argv) {
 		printf("      on-beats %.2f ms, off-beats %.2f ms (expected %.2f)\n", mean(on), mean(off), expect);
 		check(std::fabs(mean(on)) < 0.1 && std::fabs(mean(off) - expect) < 0.1, "Swing delays only the off-beat 16ths");
 	}
+	// 3b. Per-player swing adds to the master swing, capped at 75%
+	{
+		Runner r; setAll(r.e, 0, 1.0); r.e.swing = 0.6; r.e.laneSwing[0] = 0.6; r.e.laneSwing[1] = 0.75; r.e.swing = 0.6;
+		r.run(SPT * 200, true);
+		auto offMean = [&](int p) {
+			std::vector<double> v;
+			for (auto& h : r.hits) if (h.player == p && h.step >= 4 && r.tickTime.count(h.step) && (h.step - 1) % 2) v.push_back((h.time - r.tickTime[h.step]) * 1000.0);
+			return mean(v);
+		};
+		double T = SPT / SR * 1000.0;
+		printf("      player 60%%+master 60%% -> %.2f ms (expect %.2f), 75%%+60%% -> %.2f ms (cap %.2f)\n", offMean(0), 0.4 * T, offMean(1), 0.5 * T);
+		check(std::fabs(offMean(0) - 0.4 * T) < 0.1 && std::fabs(offMean(1) - 0.5 * T) < 0.1, "player swing adds to master swing, capped at 75%");
+	}
+	// 3c. Anchor pulls the bar's first 16th onto the grid
+	{
+		Runner r; setAll(r.e, 15, 1.0); r.e.lean[0] = 0.01; r.e.anchor = 1.0;
+		r.run(SPT * 3000, true);
+		std::vector<double> down, other;
+		for (auto& h : r.hits) if (h.player == 0 && h.step > 16 && r.tickTime.count(h.step)) (((h.step - 1) % 16) ? other : down).push_back((h.time - r.tickTime[h.step]) * 1000.0);
+		printf("      anchor 100%%: downbeats SD %.2f mean %.2f ms, other steps SD %.1f mean %.1f ms\n", sd(down), mean(down), sd(other), mean(other));
+		check(sd(down) < 0.1 && std::fabs(mean(down)) < 0.1 && sd(other) > 8, "Anchor puts every bar's first 16th on the beat");
+	}
+	// 3d. Push rushes through the last bar of each phrase
+	{
+		Runner r; setAll(r.e, 0, 1.0); r.e.push = 0.020; r.e.phraseBars = 2;
+		r.run(SPT * 200, true);
+		auto at = [&](int k) { // position in the 32-step phrase
+			std::vector<double> v;
+			for (auto& h : r.hits) if (h.player == 2 && h.step > 32 && r.tickTime.count(h.step) && (h.step - 1) % 32 == k) v.push_back((h.time - r.tickTime[h.step]) * 1000.0);
+			return mean(v);
+		};
+		printf("      push 20 ms: step 1 %.2f, step 16 %.2f, step 17 %.2f, step 24 %.2f, step 32 %.2f ms\n", at(0), at(15), at(16), at(23), at(31));
+		check(std::fabs(at(0)) < 0.1 && std::fabs(at(15)) < 0.1 && std::fabs(at(16) + 1.25) < 0.1 && std::fabs(at(31) + 20) < 0.1, "Push ramps from 0 to -20 ms across the phrase's last bar");
+	}
+	// 3e. Energy scales drift, and can loosen up after Reset
+	{
+		Runner r; setAll(r.e, 20, 1.0); r.e.energy = 0.0;
+		r.run(SPT * 500, true);
+		check(sd(r.offsets(0, 10)) < 0.01, "Energy 0% removes all drift");
+		Runner r2; setAll(r2.e, 20, 0.0); r2.e.loosenBars = 16;
+		r2.run(SPT * 600, true);
+		std::vector<double> early, late;
+		for (auto& h : r2.hits) if (h.player == 1 && r2.tickTime.count(h.step)) {
+			double o = (h.time - r2.tickTime[h.step]) * 1000.0;
+			if (h.step <= 32) early.push_back(o); else if (h.step > 256) late.push_back(o);
+		}
+		printf("      loosen over 16 bars: first 2 bars SD %.1f ms, after 16 bars SD %.1f ms\n", sd(early), sd(late));
+		check(sd(early) < 0.3 * sd(late) && sd(late) > 15, "Loosen-after-Reset starts tight and reaches full drift");
+	}
 	// 4. Leader mode: followers copy the leader's previous hit
 	{
 		Runner r; setAll(r.e, 20, 1.0); r.e.leaderMode = true; r.e.togetherness = 1.0;
