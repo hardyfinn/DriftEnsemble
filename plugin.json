@@ -1,7 +1,7 @@
 {
   "slug": "DriftEnsemble",
   "name": "Drift Ensemble",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "license": "GPL-3.0-or-later",
   "brand": "Haer",
   "author": "Haer",
@@ -16,7 +16,7 @@
     {
       "slug": "Ensemble",
       "name": "Ensemble",
-      "description": "One clock in, six human players out: 1/f timing drift with Spread, Feel and Togetherness",
+      "description": "One clock in, six human players out: 1/f timing drift with Spread, Lean, Feel, Swing, Togetherness and Leader mode",
       "tags": ["Clock modulator", "Random"]
     }
   ]

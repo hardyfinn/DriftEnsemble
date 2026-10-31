@@ -14,8 +14,18 @@
 // internal states keep running when beta changes, Feel can be turned live
 // without jumps.
 //
-// "Togetherness" mixes in a set of states shared by all six players, so the
-// band leans into the same push while each player keeps their own wobble.
+// On top of the drift each player has a fixed Lean (always early or late),
+// and the whole band shares one Swing amount.
+//
+// Togetherness has two modes:
+//   Band   - everyone mixes in a shared drift, so the band leans into the same
+//            push while each player keeps their own wobble.
+//   Leader - players 2-6 follow player 1's drift. By default they react to the
+//            leader's previous hit, the way a musician hears a push and adjusts
+//            on the next note.
+//
+// Pulse count is exact: every player outputs exactly one hit per input clock,
+// across clock stops, restarts and Reset, so the outputs can clock sequencers.
 #pragma once
 #include <cmath>
 #include <cstdint>
@@ -26,6 +36,7 @@ namespace drift {
 static const int NUM_PLAYERS = 6;
 // Pole 0 is white (no memory). Poles 1..7 remember 3, 9, ... 2187 steps.
 static const int NUM_POLES = 8;
+static const double MAX_SPREAD = 0.050; // seconds, limit on a player's combined spread
 
 // Small, fast random generator (xoroshiro128+) with Gaussian output.
 struct Rng {
@@ -58,14 +69,17 @@ struct Rng {
 	}
 };
 
-// A bank of unit-variance AR(1) states, one per time scale.
+// A bank of unit-variance AR(1) states, one per time scale, with its own
+// random stream so each player's drift is independent of the others (and
+// repeatable from a seed).
 struct PoleBank {
 	double state[NUM_POLES] = {};
+	Rng rng;
 
 	static double tau(int k) { return k == 0 ? 0.5 : std::pow(3.0, k); }
 	static double rho(int k) { return k == 0 ? 0.0 : std::exp(-1.0 / tau(k)); }
 
-	void step(Rng& rng) {
+	void step() {
 		for (int k = 0; k < NUM_POLES; k++) {
 			double r = rho(k);
 			state[k] = r * state[k] + std::sqrt(1.0 - r * r) * rng.normal();
@@ -77,9 +91,15 @@ struct PoleBank {
 	}
 	// Start each state at a random value from its long-run spread, so the
 	// ensemble is "already playing" instead of starting perfectly tight.
-	void randomize(Rng& rng) {
+	void randomize() {
 		for (int k = 0; k < NUM_POLES; k++)
 			state[k] = rng.normal();
+	}
+	double mix(const double* w) const {
+		double x = 0.0;
+		for (int k = 0; k < NUM_POLES; k++)
+			x += w[k] * state[k];
+		return x;
 	}
 };
 
@@ -96,84 +116,167 @@ inline void betaWeights(double beta, double* w) {
 		w[k] = std::sqrt(w[k] / sum);
 }
 
-struct PlayerSettings {
-	double spread = 0.02; // standard deviation of timing offset, seconds
-	double beta = 1.0;    // noise colour, 0..2
+// A player's (or the band's) drift as a sequence indexed by step number, so
+// step n always gets the same value whatever order things are asked for in.
+// That keeps seeds repeatable and lets followers look up the leader's hits.
+struct Stream {
+	PoleBank bank;
+	int64_t index = 0;         // step number the bank's state belongs to
+	double ring[16] = {};      // recent unit-variance values, by step number
+
+	void restart(int64_t fromStep) {
+		bank.clear();
+		index = fromStep - 1;
+		for (int k = 0; k < 16; k++)
+			ring[k] = 0.0;
+	}
+	// Unit drift for step n. While frozen the state stops moving.
+	double at(int64_t n, const double* w, bool frozen) {
+		while (index < n) {
+			if (!frozen)
+				bank.step();
+			index++;
+			ring[index & 15] = std::min(std::max(bank.mix(w), -4.0), 4.0);
+		}
+		if (n <= index - 16)
+			n = index - 15;
+		return ring[n & 15];
+	}
 };
 
 struct Engine {
 	enum OutputMode { TRIGGER, GATE };
 
-	// Settings, written by the module every block
-	PlayerSettings players[NUM_PLAYERS];
-	double togetherness = 0.3; // 0..1
-	int outputMode = TRIGGER; // an OutputMode
-	double triggerLength = 0.005; // seconds
+	// Settings, written by the module
+	double laneSpread[NUM_PLAYERS]; // seconds, from each player's Spread knob
+	double lean[NUM_PLAYERS];       // seconds, negative = early
+	double masterSpread = 0.0;      // seconds, added to every lane
+	double beta = 1.0;              // Feel, 0..2
+	double togetherness = 0.3;      // 0..1
+	bool leaderMode = false;
+	bool reactToPrevious = true;    // leader mode: follow the leader's last hit
+	double swing = 0.5;             // 0.5 = straight, 0.75 = full swing
+	bool frozen = false;
+	int seed = 0;                   // 0 = different every time, 1-32 = repeatable
+	int outputMode = TRIGGER;       // an OutputMode
+	double triggerLength = 0.005;   // seconds
 
 	// Outputs, read by the module every sample
 	bool out[NUM_PLAYERS] = {};
-	double offsetMs[NUM_PLAYERS] = {}; // held offset of the last hit, ms
-	bool fired[NUM_PLAYERS] = {};      // true for one sample when a hit happens
+	bool fired[NUM_PLAYERS] = {};   // true for one sample when a hit happens
+	double offsetMs[NUM_PLAYERS] = {}; // offset of the last hit (drift + lean), ms
 
 	// Internal state
-	Rng rng;
-	PoleBank own[NUM_PLAYERS];
-	PoleBank shared;
+	Stream own[NUM_PLAYERS];
+	Stream shared;
+	double weights[NUM_POLES];
+	double weightsBeta = -1.0;
 	double now = 0.0;          // seconds since start
-	double lastTick = -1.0;    // time of last clock tick
+	double lastTick = -1.0;    // time of the last clock tick
 	double period = 0.0;       // smoothed clock period, 0 = unknown
-	int64_t tick = 0;          // index of last clock tick
-	bool running = false;
-	int64_t nextStep[NUM_PLAYERS] = {};
-	double nextOffset[NUM_PLAYERS] = {};
-	double lastHit[NUM_PLAYERS] = {};
-	double gateEnd[NUM_PLAYERS] = {};
-	bool resetPending = false;
+	int64_t tick = 0;          // number of clock ticks so far (index of the last one)
+	int64_t swingOrigin = 1;   // step index that counts as a downbeat
+	bool seededStart = false;
+	int64_t nextStep[NUM_PLAYERS];
+	double nextOffset[NUM_PLAYERS];  // drift + lean for the next hit, seconds
+	double nextDrift[NUM_PLAYERS];   // drift part only
+	double lastHit[NUM_PLAYERS];
+	double gateEnd[NUM_PLAYERS];
 
 	Engine() {
-		for (int i = 0; i < NUM_PLAYERS; i++)
+		uint64_t base = 0x1234567ULL;
+		for (int i = 0; i < NUM_PLAYERS; i++) {
+			laneSpread[i] = 0.02;
+			lean[i] = 0.0;
+			own[i].bank.rng.setSeed(base + i);
+			nextStep[i] = 1;
+			nextOffset[i] = 0.0;
+			nextDrift[i] = 0.0;
 			lastHit[i] = -1e9;
+			gateEnd[i] = -1.0;
+		}
+		shared.bank.rng.setSeed(base + 99);
+		betaWeights(beta, weights);
+		weightsBeta = beta;
 	}
 
-	// Pull everyone back onto the grid. Drift then grows again from zero.
-	void reset() {
+	// Give every random stream a fresh starting point. seed 0 = random.
+	void reseed(uint64_t s) {
 		for (int i = 0; i < NUM_PLAYERS; i++)
-			own[i].clear();
-		shared.clear();
-		resetPending = true;
+			own[i].bank.rng.setSeed(s * 1000003ULL + i);
+		shared.bank.rng.setSeed(s * 1000003ULL + 99);
 	}
 
 	void randomizeStates() {
 		for (int i = 0; i < NUM_PLAYERS; i++)
-			own[i].randomize(rng);
-		shared.randomize(rng);
+			own[i].bank.randomize();
+		shared.bank.randomize();
+	}
+
+	// Pull everyone's drift back to zero (it then grows again). Players keep
+	// their place in the count, so no hit is gained or lost. With a seed set,
+	// the drift that follows is the same every time.
+	void reset() {
+		// The tick that goes with this reset is the downbeat. A reset usually
+		// arrives together with, or just after, a clock tick.
+		bool justTicked = lastTick >= 0.0 && period > 0.0 && now - lastTick < 0.25 * period;
+		restartDrift(justTicked ? tick : tick + 1);
+	}
+
+	// Drift starts again from zero at step 'from' (and from the seed, if set)
+	void restartDrift(int64_t from) {
+		if (seed > 0)
+			reseed((uint64_t) seed);
+		for (int i = 0; i < NUM_PLAYERS; i++)
+			own[i].restart(from);
+		shared.restart(from);
+		swingOrigin = from;
+		// Re-plan hits from that step on; hits already owed keep their timing
+		for (int i = 0; i < NUM_PLAYERS; i++)
+			if (nextStep[i] >= from)
+				drawNext(i);
+	}
+
+	double effectiveSpread(int i) const {
+		return std::min(std::max(laneSpread[i] + masterSpread, 0.0), MAX_SPREAD);
+	}
+
+	// Work out player i's drift (seconds) for its next step
+	void drawNext(int i) {
+		if (weightsBeta != beta) {
+			betaWeights(beta, weights);
+			weightsBeta = beta;
+		}
+		int64_t n = nextStep[i];
+		double g = std::min(std::max(togetherness, 0.0), 1.0);
+		double u = own[i].at(n, weights, frozen);
+		double s = effectiveSpread(i);
+		double d;
+		if (leaderMode && i > 0) {
+			// The leader's drift on its previous step (or this one)
+			int64_t m = reactToPrevious ? n - 1 : n;
+			double L = effectiveSpread(0) * own[0].at(m, weights, frozen);
+			d = std::sqrt(1.0 - g) * s * u + std::sqrt(g) * L;
+		}
+		else if (leaderMode) {
+			d = s * u;
+		}
+		else {
+			double b = shared.at(n, weights, frozen);
+			d = s * (std::sqrt(1.0 - g) * u + std::sqrt(g) * b);
+		}
+		nextDrift[i] = d;
+		nextOffset[i] = d + lean[i];
 	}
 
 	double gridTime(int64_t n) const { return lastTick + double(n - tick) * period; }
 
-	// Advance the drift states by one step and return this player's offset
-	// in seconds for its next hit.
-	double drawOffset(int i) {
-		own[i].step(rng);
-		double w[NUM_POLES];
-		betaWeights(players[i].beta, w);
-		double a = 0.0, b = 0.0;
-		for (int k = 0; k < NUM_POLES; k++) {
-			a += w[k] * own[i].state[k];
-			b += w[k] * shared.state[k];
-		}
-		double g = std::min(std::max(togetherness, 0.0), 1.0);
-		double unit = std::sqrt(1.0 - g) * a + std::sqrt(g) * b;
-		// Keep extreme draws musical: never more than 4 standard deviations
-		unit = std::min(std::max(unit, -4.0), 4.0);
-		return players[i].spread * unit;
-	}
-
-	// Called on each rising edge of the clock input.
 	void clockTick() {
 		if (lastTick >= 0.0) {
 			double p = now - lastTick;
-			if (p > 0.001) {
+			bool restart = period > 0.0 && p > 2.5 * period;
+			// After a stop, keep the old tempo until the next tick shows the new one
+			if (!restart && p > 0.001) {
 				if (period <= 0.0 || std::fabs(p - period) > 0.15 * period)
 					period = p; // tempo jump: follow at once
 				else
@@ -182,30 +285,50 @@ struct Engine {
 		}
 		lastTick = now;
 		tick++;
-
-		// The shared "band" drift moves once per step
-		shared.step(rng);
-
-		if (period <= 0.0)
-			return; // need two ticks to know the tempo
-
-		if (!running || resetPending) {
-			running = true;
-			resetPending = false;
-			// This tick is the downbeat: everyone hits now, together
-			for (int i = 0; i < NUM_PLAYERS; i++) {
-				hit(i, 0.0);
-				nextStep[i] = tick + 1;
-				nextOffset[i] = drawOffset(i);
+		if (!seededStart) {
+			// Very first tick: it's the downbeat, and a fixed seed starts the
+			// same way every time
+			seededStart = true;
+			if (seed > 0) {
+				restartDrift(tick);
+			}
+			else {
+				swingOrigin = tick;
+				for (int i = 0; i < NUM_PLAYERS; i++)
+					drawNext(i);
 			}
 		}
 	}
 
-	void hit(int i, double offset) {
+	void hit(int i) {
 		lastHit[i] = now;
 		fired[i] = true;
-		offsetMs[i] = offset * 1000.0;
-		gateEnd[i] = now + (outputMode == GATE ? 0.5 * period : triggerLength);
+		offsetMs[i] = nextOffset[i] * 1000.0;
+		double len = outputMode == GATE && period > 0.0 ? 0.5 * period : triggerLength;
+		gateEnd[i] = now + len;
+		nextStep[i]++;
+		drawNext(i);
+	}
+
+	// Is it time for player i to play its next step?
+	bool due(int i) const {
+		int64_t n = nextStep[i];
+		if (n > tick + 1)
+			return false; // never more than one step ahead of the real clock
+		if (period <= 0.0)
+			return n <= tick; // tempo unknown: play exactly on the tick
+
+		bool offBeat = ((n - swingOrigin) % 2 + 2) % 2 == 1;
+		double swingDelay = offBeat ? (swing - 0.5) * 2.0 * period : 0.0;
+		// Limits: up to 0.9 of a step early, up to 4 steps late
+		double off = std::min(std::max(nextOffset[i], -0.9 * period), 4.0 * period);
+		double shift = swingDelay + off;
+		if (n == tick + 1 && shift >= 0.0)
+			return false; // a late hit for a tick that hasn't arrived: wait for it
+		double t = gridTime(n) + shift;
+		// Keep at least a quarter step between two hits of one player
+		t = std::max(t, lastHit[i] + 0.25 * period);
+		return now >= t;
 	}
 
 	// Call once per sample with the clock and reset edges for this sample.
@@ -217,26 +340,9 @@ struct Engine {
 		if (clockEdge)
 			clockTick();
 
-		// Clock stopped? Go quiet and wait for it to come back.
-		if (running && period > 0.0 && now - lastTick > 2.5 * period)
-			running = false;
-
-		if (running) {
-			for (int i = 0; i < NUM_PLAYERS; i++) {
-				// A player can run ahead or fall behind the clock, but never by
-				// more than 4 steps, so they stay part of the band.
-				double maxLead = 4.0 * period;
-				double off = std::min(std::max(nextOffset[i], -maxLead), maxLead);
-				double t = gridTime(nextStep[i]) + off;
-				// Keep at least a quarter step between two hits of one player
-				t = std::max(t, lastHit[i] + 0.25 * period);
-				if (now >= t) {
-					hit(i, off);
-					nextStep[i]++;
-					nextOffset[i] = drawOffset(i);
-				}
-			}
-		}
+		for (int i = 0; i < NUM_PLAYERS; i++)
+			if (due(i))
+				hit(i);
 
 		for (int i = 0; i < NUM_PLAYERS; i++)
 			out[i] = now < gateEnd[i];
