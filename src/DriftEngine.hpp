@@ -14,8 +14,8 @@
 // internal states keep running when beta changes, Feel can be turned live
 // without jumps.
 //
-// On top of the drift each player has a fixed Lean (always early or late),
-// and the whole band shares one Swing amount.
+// On top of the drift each player has a fixed Lean (always early or late)
+// and its own Swing, which adds to the master Swing.
 //
 // Togetherness has two modes:
 //   Band   - everyone mixes in a shared drift, so the band leans into the same
@@ -155,7 +155,8 @@ struct Engine {
 	double togetherness = 0.3;      // 0..1
 	bool leaderMode = false;
 	bool reactToPrevious = true;    // leader mode: follow the leader's last hit
-	double swing = 0.5;             // 0.5 = straight, 0.75 = full swing
+	double swing = 0.5;             // master Swing: 0.5 = straight, 0.75 = full swing
+	double laneSwing[NUM_PLAYERS];  // each player's own Swing, added to the master
 	bool frozen = false;
 	int seed = 0;                   // 0 = different every time, 1-32 = repeatable
 	int outputMode = TRIGGER;       // an OutputMode
@@ -188,6 +189,7 @@ struct Engine {
 		for (int i = 0; i < NUM_PLAYERS; i++) {
 			laneSpread[i] = 0.02;
 			lean[i] = 0.0;
+			laneSwing[i] = 0.5;
 			own[i].bank.rng.setSeed(base + i);
 			nextStep[i] = 1;
 			nextOffset[i] = 0.0;
@@ -319,7 +321,9 @@ struct Engine {
 			return n <= tick; // tempo unknown: play exactly on the tick
 
 		bool offBeat = ((n - swingOrigin) % 2 + 2) % 2 == 1;
-		double swingDelay = offBeat ? (swing - 0.5) * 2.0 * period : 0.0;
+		// Player's swing plus the master's, never past 75%
+		double sw = std::min(std::max(laneSwing[i] + swing - 0.5, 0.5), 0.75);
+		double swingDelay = offBeat ? (sw - 0.5) * 2.0 * period : 0.0;
 		// Limits: up to 0.9 of a step early, up to 4 steps late
 		double off = std::min(std::max(nextOffset[i], -0.9 * period), 4.0 * period);
 		double shift = swingDelay + off;
