@@ -224,9 +224,9 @@ struct Ensemble : Module {
 // Positions in mm, matching the panel artwork (see res/make_panel.py)
 static const float TOP_Y = 27.f;
 static const float ROW0_Y = 47.f, ROW_DY = 13.5f;
-static const float SPREAD_X = 8.f, LEAN_X = 19.5f, LSWING_X = 31.f, LIGHT_X = 39.5f, OUT_X = 49.5f;
-static const float C1 = 63.f, C2 = 74.5f, C3 = 85.5f;
-static const Vec DISPLAY_POS = Vec(29.f, 18.5f), DISPLAY_SIZE = Vec(60.f, 16.5f);
+static const float SPREAD_X = 9.5f, LEAN_X = 24.f, LSWING_X = 38.5f, LIGHT_X = 47.5f, OUT_X = 57.5f;
+static const float C1 = 75.f, C2 = 88.5f, C3 = 102.f;
+static const Vec DISPLAY_POS = Vec(33.f, 18.5f), DISPLAY_SIZE = Vec(74.8f, 16.5f);
 
 // Six lanes: the centre line is the clock, each dot is that player's last
 // hit (left = early, right = late, full width = 50 ms), flashing on each hit.
@@ -283,7 +283,7 @@ struct EnsembleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(10.f, TOP_Y)), module, Ensemble::CLOCK_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(22.f, TOP_Y)), module, Ensemble::RESET_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(24.f, TOP_Y)), module, Ensemble::RESET_INPUT));
 
 		DriftDisplay* display = createWidget<DriftDisplay>(mm2px(DISPLAY_POS));
 		display->box.size = mm2px(DISPLAY_SIZE);
